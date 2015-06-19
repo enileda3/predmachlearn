@@ -1,0 +1,156 @@
+---
+title: "Practical Machine Learning Course Writeup"
+subtitle: "Predicting Quality of Weight Lifting Exercise"
+author: "Adeline Ong"
+date: "16 June 2015"
+output: html_document
+---
+
+
+##**Introduction**
+
+In this project, our goal is to quantify how well people are doing weight lifting exercise. Data are collected with fitted accelerometers on the belt, forearm, arm and dumbbell. Participants were asked to perform weight lifting exercise with dumbbell correctly and incorrectly in 5 different ways as follows:
+
+Class A - According to the specification
+Class B - Throwing the elbow to the front
+Class C - Lifting the dumbbell only halfway
+Class D - Lowering the dumbbell only halfway
+Class E - Throwing the hips to the front
+
+The data used in this report come from this source: http://groupware.les.inf.puc-rio.br/har 
+
+
+
+##**PreProcessing**
+
+We begin by loading nescessary library, the training and testing dataset into R.
+```{r}
+library(caret)
+library(rattle)
+library(kernlab)
+
+```
+
+```{r, echo=FALSE}
+pml<-read.csv("C:/Users/Adeline Ong/Documents/Courses/Practical Machine Learning/Project/pml-training.csv", 
+              na.strings=c("NA", "#DIV/0!"))
+
+pml_test<-read.csv("C:/Users/Adeline Ong/Documents/Courses/Practical Machine Learning/Project/pml-testing.csv", 
+                   na.strings=c("NA", "#DIV/0!"))
+```
+
+In order to save R processing time, we first drop variables that are unnessecary for the prediction model. The variables that were dropped were user name, timestamp and window information that will not contribute to the prediction.
+
+```{r}
+pml1<-pml[c( -1:-7)]
+```
+
+Before any analysis is performed, we identify many predictors with missing observations and decided to remove any such predictors.
+```{r}
+pml2<-pml1[,colSums(is.na(pml1))/nrow(pml1)<0.9]
+```
+
+
+
+##**Data Processing**
+
+We split our training dataset into 60% training, 20% testing and 20% validation and set the seed to 1234 for this analysis.
+
+```{r}
+inBuild<-createDataPartition(y=pml2$classe, p=0.6, list=FALSE)
+training<-pml2[inBuild,]
+nontraining<-pml2[-inBuild,]
+
+inTest<-createDataPartition(y=nontraining$classe, p=0.5, list=FALSE)
+testing<-nontraining[inTest,]
+validate<-nontraining[-inTest,]
+
+set.seed(1234)
+```
+
+
+
+##**Analysis**
+
+
+###**CART**
+
+We build our first model using a simple CART (classification and regression tree) model as it is easy to interpret and provide visualization of the data.
+
+```{r}
+modelfit_rpart<-train(classe~.,data=training,method="rpart")
+print(modelfit_rpart)
+fancyRpartPlot(modelfit_rpart$finalModel)
+
+predict_rpart<-predict(modelfit_rpart, newdata=testing)
+print(confusionMatrix(predict_rpart, testing$classe))
+
+```
+
+From the classification tree, it does not predict class D and with the low accuracy, we will fit random forest model next which can improve the accuracy and classification rate.
+
+
+###**Random Forest**
+
+For the random forest model, we fit the model with 5-fold cross validation. 
+
+```{r}
+modelfit_rf<-train(classe~.,data=training,method="rf", prox=TRUE, trControl=trainControl(method="cv", number=5))
+
+predict_rf<-predict(modelfit_rf, newdata=testing)
+print(confusionMatrix(predict_rf, testing$classe))
+```
+
+We try to reduce the number of predictors using varImp, by fitting the random forest model with 20 most important 
+```{r}
+rfImp<-varImp(modelfit_rf, scale=FALSE)
+print(rfImp, type="html")
+```
+
+
+```{r,echo=FALSE}
+rfImp_vars<-c("roll_belt", "pitch_forearm", "yaw_belt", "magnet_dumbbell_z", "pitch_belt", "magnet_dumbbell_y", "roll_forearm", "accel_dumbbell_y", "roll_dumbbell", "magnet_dumbbell_x", "accel_forearm_x", "magnet_belt_z", "accel_dumbbell_z", "accel_belt_z", "magnet_belt_y", "roll_arm", "accel_arm_x", "gyros_belt_z", "yaw_dumbbell", "accel_dumbbell_x", "classe")
+training_rfImp<-training[rfImp_vars]
+testing_rfImp<-testing[rfImp_vars]
+
+```
+
+```{r}
+modelfit_rfImp<-train(classe~.,data=training_rfImp,method="rf", prox=TRUE, trControl=trainControl(method="cv", number=5))
+print(modelfit_rfImp)
+
+predict_rfImp<-predict(modelfit_rfImp, newdata=testing_rfImp)
+print(confusionMatrix(predict_rfImp, testing_rfImp$classe))
+```
+
+
+###**Generalized Boosted Regression Model**
+
+Another method to reduce variance and increase prediction accuracy is boosting with trees, gbm.
+
+```{r}
+modelfit_gbm<-train(classe~., data=training, method="gbm", verbose=FALSE, trControl=trainControl(method="cv", number=5))
+
+predict_gbm<-predict(modelfit_gbm, newdata=testing)
+print(confusionMatrix(predict_gbm, testing$classe))
+```
+
+
+
+##**Final Model**
+
+The  random forest, full model with all predictors appear to have the highest accuracy. So we decided to use that as our final model for predicting the outcome for the testing dataset.
+
+```{r}
+predict_rf<-predict(modelfit_rf, newdata=validate)
+print(confusionMatrix(predict_rf, validate$classe))
+```
+
+The final model prediction accuracy is 99.3%, using random forest with 52 predictors and 5-fold cross validation. The out of sample error rate is 0.64%.
+
+
+
+##**Prediction**
+
+The final model is applied to the test data to predict the outcome of the 20 observation. The results of the predicted outcome is submitted separately on the course website.
+
